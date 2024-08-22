@@ -561,7 +561,9 @@ def loaded_models(only_currently_used=False):
 def cleanup_models(keep_clone_weights_loaded=False):
     to_delete = []
     for i in range(len(current_loaded_models)):
-        if sys.getrefcount(current_loaded_models[i].model) <= 2:
+        #TODO: very fragile function needs improvement
+        num_refs = sys.getrefcount(current_loaded_models[i].model)
+        if num_refs <= 2:
             if not keep_clone_weights_loaded:
                 to_delete = [i] + to_delete
             #TODO: find a less fragile way to do this.
@@ -668,6 +670,7 @@ def unet_manual_cast(weight_dtype, inference_device, supported_dtypes=[torch.flo
     if bf16_supported and weight_dtype == torch.bfloat16:
         return None
 
+    fp16_supported = should_use_fp16(inference_device, prioritize_performance=True)
     for dt in supported_dtypes:
         if dt == torch.float16 and fp16_supported:
             return torch.float16
@@ -883,7 +886,8 @@ def pytorch_attention_flash_attention():
 def force_upcast_attention_dtype():
     upcast = args.force_upcast_attention
     try:
-        if platform.mac_ver()[0] in ['14.5']: #black image bug on OSX Sonoma 14.5
+        macos_version = tuple(int(n) for n in platform.mac_ver()[0].split("."))
+        if (14, 5) <= macos_version < (14, 7):  # black image bug on recent versions of MacOS
             upcast = True
     except:
         pass
@@ -986,16 +990,13 @@ def should_use_fp16(device=None, model_params=0, prioritize_performance=True, ma
     if props.major < 6:
         return False
 
-    fp16_works = False
-    #FP16 is confirmed working on a 1080 (GP104) but it's a bit slower than FP32 so it should only be enabled
-    #when the model doesn't actually fit on the card
-    #TODO: actually test if GP106 and others have the same type of behavior
+    #FP16 is confirmed working on a 1080 (GP104) and on latest pytorch actually seems faster than fp32
     nvidia_10_series = ["1080", "1070", "titan x", "p3000", "p3200", "p4000", "p4200", "p5000", "p5200", "p6000", "1060", "1050", "p40", "p100", "p6", "p4"]
     for x in nvidia_10_series:
         if x in props.name.lower():
-            fp16_works = True
+            return True
 
-    if fp16_works or manual_cast:
+    if manual_cast:
         free_model_memory = maximum_vram_for_weights(device)
         if (not prioritize_performance) or model_params * 4 > free_model_memory:
             return True
