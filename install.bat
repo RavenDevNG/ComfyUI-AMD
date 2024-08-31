@@ -64,7 +64,7 @@ echo
 cls
 echo ..................................................... 
 echo *** Installation is completed in %hh:~1%%time:~2,1%%mm:~1%%time:~2,1%%ss:~1%%time:~8,1%%cc:~1% . 
-echo *** Execute the zluda.ps1 script via PowerShell from the context menu. 
+echo *** Run patch_zluda.py so that the script can make corrections in the cuda_malloc and model_management files, which will enable running ComfyUI on an AMD card, then run start.bat, have fun. 
 echo ..................................................... 
 pause
 
