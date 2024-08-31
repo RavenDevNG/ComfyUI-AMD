@@ -6,7 +6,7 @@ set COMMANDLINE_ARGS=--auto-launch
 
 echo *** Checking and updating to new version if possible 
 %GIT% fetch
-%GIT% reset --hard origin/main
+%GIT% reset --hard origin/master
 
 echo.
 echo *** Applying patches...
