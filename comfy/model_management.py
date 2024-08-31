@@ -44,9 +44,15 @@ cpu_state = CPUState.GPU
 
 total_vram = 0
 
-lowvram_available = True
 xpu_available = False
+torch_version = ""
+try:
+    torch_version = torch.version.__version__
+    xpu_available = (int(torch_version[0]) < 2 or (int(torch_version[0]) == 2 and int(torch_version[2]) <= 4)) and torch.xpu.is_available()
+except:
+    pass
 
+lowvram_available = True
 if args.deterministic:
     logging.info("Using deterministic algorithms for pytorch")
     torch.use_deterministic_algorithms(True, warn_only=True)
@@ -66,10 +72,10 @@ if args.directml is not None:
 
 try:
     import intel_extension_for_pytorch as ipex
-    if torch.xpu.is_available():
-        xpu_available = True
+    _ = torch.xpu.device_count()
+    xpu_available = torch.xpu.is_available()
 except:
-    pass
+    xpu_available = xpu_available or (hasattr(torch, "xpu") and torch.xpu.is_available())
 
 try:
     if torch.backends.mps.is_available():
@@ -189,7 +195,6 @@ VAE_DTYPES = [torch.float32]
 
 try:
     if is_nvidia():
-        torch_version = torch.version.__version__
         if int(torch_version[0]) >= 2:
             if ENABLE_PYTORCH_ATTENTION == False and args.use_split_cross_attention == False and args.use_quad_cross_attention == False:
                 ENABLE_PYTORCH_ATTENTION = True
@@ -321,8 +326,9 @@ class LoadedModel:
                 self.model_unload()
                 raise e
 
-        if is_intel_xpu() and not args.disable_ipex_optimize:
-            self.real_model = ipex.optimize(self.real_model.eval(), graph_mode=True, concat_linear=True)
+        if is_intel_xpu() and not args.disable_ipex_optimize and self.real_model is not None:
+            with torch.no_grad():
+                self.real_model = ipex.optimize(self.real_model.eval(), inplace=True, graph_mode=True, concat_linear=True)
 
         self.weights_loaded = True
         return self.real_model
@@ -400,6 +406,8 @@ def unload_model_clones(model, unload_weights_only=True, force_unload=True):
     if not force_unload:
         if unload_weights_only and unload_weight == False:
             return None
+    else:
+        unload_weight = True
 
     for i in to_unload:
         logging.debug("unload clone {} {}".format(i, unload_weight))
