@@ -1,10 +1,20 @@
 import itertools
-from typing import Sequence, Mapping
+from typing import Sequence, Mapping, Dict
 from comfy_execution.graph import DynamicPrompt
 
 import nodes
 
 from comfy_execution.graph_utils import is_link
+
+NODE_CLASS_CONTAINS_UNIQUE_ID: Dict[str, bool] = {}
+
+
+def include_unique_id_in_input(class_type: str) -> bool:
+    if class_type in NODE_CLASS_CONTAINS_UNIQUE_ID:
+        return NODE_CLASS_CONTAINS_UNIQUE_ID[class_type]
+    class_def = nodes.NODE_CLASS_MAPPINGS[class_type]
+    NODE_CLASS_CONTAINS_UNIQUE_ID[class_type] = "UNIQUE_ID" in class_def.INPUT_TYPES().get("hidden", {}).values()
+    return NODE_CLASS_CONTAINS_UNIQUE_ID[class_type]
 
 class CacheKeySet:
     def __init__(self, dynprompt, node_ids, is_changed_cache):
@@ -67,7 +77,6 @@ class CacheKeySetInputSignature(CacheKeySet):
         super().__init__(dynprompt, node_ids, is_changed_cache)
         self.dynprompt = dynprompt
         self.is_changed_cache = is_changed_cache
-        self.immediate_node_signature = {}
         self.add_keys(node_ids)
 
     def include_node_id_in_input(self) -> bool:
@@ -95,13 +104,11 @@ class CacheKeySetInputSignature(CacheKeySet):
         if not dynprompt.has_node(node_id):
             # This node doesn't exist -- we can't cache it.
             return [float("NaN")]
-        if node_id in self.immediate_node_signature:    # reduce repeated calls of ancestors
-            return self.immediate_node_signature[node_id]
         node = dynprompt.get_node(node_id)
         class_type = node["class_type"]
         class_def = nodes.NODE_CLASS_MAPPINGS[class_type]
         signature = [class_type, self.is_changed_cache.get(node_id)]
-        if self.include_node_id_in_input() or (hasattr(class_def, "NOT_IDEMPOTENT") and class_def.NOT_IDEMPOTENT) or "UNIQUE_ID" in class_def.INPUT_TYPES().get("hidden", {}).values():
+        if self.include_node_id_in_input() or (hasattr(class_def, "NOT_IDEMPOTENT") and class_def.NOT_IDEMPOTENT) or include_unique_id_in_input(class_type):
             signature.append(node_id)
         inputs = node["inputs"]
         for key in sorted(inputs.keys()):
@@ -111,7 +118,6 @@ class CacheKeySetInputSignature(CacheKeySet):
                 signature.append((key,("ANCESTOR", ancestor_index, ancestor_socket)))
             else:
                 signature.append((key, inputs[key]))
-        self.immediate_node_signature[node_id] = signature
         return signature
 
     # This function returns a list of all ancestors of the given node. The order of the list is
