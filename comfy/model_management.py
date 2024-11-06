@@ -647,6 +647,9 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=[torch.float16, tor
         pass
 
     if fp8_dtype is not None:
+        if supports_fp8_compute(device): #if fp8 compute is supported the casting is most likely not expensive
+            return fp8_dtype
+
         free_model_memory = maximum_vram_for_weights(device)
         if model_params * 2 > free_model_memory:
             return fp8_dtype
@@ -893,7 +896,7 @@ def force_upcast_attention_dtype():
     upcast = args.force_upcast_attention
     try:
         macos_version = tuple(int(n) for n in platform.mac_ver()[0].split("."))
-        if (14, 5) <= macos_version <= (15, 0, 1):  # black image bug on recent versions of macOS
+        if (14, 5) <= macos_version <= (15, 2):  # black image bug on recent versions of macOS
             upcast = True
     except:
         pass
