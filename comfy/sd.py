@@ -12,6 +12,7 @@ from .ldm.audio.autoencoder import AudioOobleckVAE
 import comfy.ldm.genmo.vae.model
 import comfy.ldm.lightricks.vae.causal_video_autoencoder
 import yaml
+import math
 
 import comfy.utils
 
@@ -26,11 +27,13 @@ import comfy.text_encoders.sd2_clip
 import comfy.text_encoders.sd3_clip
 import comfy.text_encoders.sa_t5
 import comfy.text_encoders.aura_t5
+import comfy.text_encoders.pixart_t5
 import comfy.text_encoders.hydit
 import comfy.text_encoders.flux
 import comfy.text_encoders.long_clipl
 import comfy.text_encoders.genmo
 import comfy.text_encoders.lt
+import comfy.text_encoders.hunyuan_video
 
 import comfy.model_patcher
 import comfy.lora
@@ -306,8 +309,8 @@ class VAE:
                     self.upscale_ratio = 4
 
                 self.latent_channels = ddconfig['z_channels'] = sd["decoder.conv_in.weight"].shape[1]
-                if 'quant_conv.weight' in sd:
-                    self.first_stage_model = AutoencoderKL(ddconfig=ddconfig, embed_dim=4)
+                if 'post_quant_conv.weight' in sd:
+                    self.first_stage_model = AutoencoderKL(ddconfig=ddconfig, embed_dim=sd['post_quant_conv.weight'].shape[1])
                 else:
                     self.first_stage_model = AutoencodingEngine(regularizer_config={'target': "comfy.ldm.models.autoencoder.DiagonalGaussianRegularizer"},
                                                                 encoder_config={'target': "comfy.ldm.modules.diffusionmodules.model.Encoder", 'params': ddconfig},
@@ -335,15 +338,35 @@ class VAE:
                 self.memory_used_decode = lambda shape, dtype: (1000 * shape[2] * shape[3] * shape[4] * (6 * 8 * 8)) * model_management.dtype_size(dtype)
                 self.memory_used_encode = lambda shape, dtype: (1.5 * max(shape[2], 7) * shape[3] * shape[4] * (6 * 8 * 8)) * model_management.dtype_size(dtype)
                 self.upscale_ratio = (lambda a: max(0, a * 6 - 5), 8, 8)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 5) / 6)), 8, 8)
                 self.working_dtypes = [torch.float16, torch.float32]
             elif "decoder.up_blocks.0.res_blocks.0.conv1.conv.weight" in sd: #lightricks ltxv
-                self.first_stage_model = comfy.ldm.lightricks.vae.causal_video_autoencoder.VideoVAE()
+                tensor_conv1 = sd["decoder.up_blocks.0.res_blocks.0.conv1.conv.weight"]
+                version = 0
+                if tensor_conv1.shape[0] == 512:
+                    version = 0
+                elif tensor_conv1.shape[0] == 1024:
+                    version = 1
+                self.first_stage_model = comfy.ldm.lightricks.vae.causal_video_autoencoder.VideoVAE(version=version)
                 self.latent_channels = 128
                 self.latent_dim = 3
                 self.memory_used_decode = lambda shape, dtype: (900 * shape[2] * shape[3] * shape[4] * (8 * 8 * 8)) * model_management.dtype_size(dtype)
                 self.memory_used_encode = lambda shape, dtype: (70 * max(shape[2], 7) * shape[3] * shape[4]) * model_management.dtype_size(dtype)
                 self.upscale_ratio = (lambda a: max(0, a * 8 - 7), 32, 32)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 7) / 8)), 32, 32)
                 self.working_dtypes = [torch.bfloat16, torch.float32]
+            elif "decoder.conv_in.conv.weight" in sd:
+                ddconfig = {'double_z': True, 'z_channels': 4, 'resolution': 256, 'in_channels': 3, 'out_ch': 3, 'ch': 128, 'ch_mult': [1, 2, 4, 4], 'num_res_blocks': 2, 'attn_resolutions': [], 'dropout': 0.0}
+                ddconfig["conv3d"] = True
+                ddconfig["time_compress"] = 4
+                self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
+                self.downscale_ratio = (lambda a: max(0, math.floor((a + 3) / 4)), 8, 8)
+                self.latent_dim = 3
+                self.latent_channels = ddconfig['z_channels'] = sd["decoder.conv_in.conv.weight"].shape[1]
+                self.first_stage_model = AutoencoderKL(ddconfig=ddconfig, embed_dim=sd['post_quant_conv.weight'].shape[1])
+                self.memory_used_decode = lambda shape, dtype: (1500 * shape[2] * shape[3] * shape[4] * (4 * 8 * 8)) * model_management.dtype_size(dtype)
+                self.memory_used_encode = lambda shape, dtype: (900 * max(shape[2], 2) * shape[3] * shape[4]) * model_management.dtype_size(dtype)
+                self.working_dtypes = [torch.bfloat16, torch.float16, torch.float32]
             else:
                 logging.warning("WARNING: No VAE weights detected, VAE not initalized.")
                 self.first_stage_model = None
@@ -373,10 +396,12 @@ class VAE:
         logging.debug("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
 
     def vae_encode_crop_pixels(self, pixels):
+        downscale_ratio = self.spacial_compression_encode()
+
         dims = pixels.shape[1:-1]
         for d in range(len(dims)):
-            x = (dims[d] // self.downscale_ratio) * self.downscale_ratio
-            x_offset = (dims[d] % self.downscale_ratio) // 2
+            x = (dims[d] // downscale_ratio) * downscale_ratio
+            x_offset = (dims[d] % downscale_ratio) // 2
             if x != dims[d]:
                 pixels = pixels.narrow(d + 1, x_offset, x)
         return pixels
@@ -397,7 +422,7 @@ class VAE:
 
     def decode_tiled_1d(self, samples, tile_x=128, overlap=32):
         decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
-        return comfy.utils.tiled_scale_multidim(samples, decode_fn, tile=(tile_x,), overlap=overlap, upscale_amount=self.upscale_ratio, out_channels=self.output_channels, output_device=self.output_device)
+        return self.process_output(comfy.utils.tiled_scale_multidim(samples, decode_fn, tile=(tile_x,), overlap=overlap, upscale_amount=self.upscale_ratio, out_channels=self.output_channels, output_device=self.output_device))
 
     def decode_tiled_3d(self, samples, tile_t=999, tile_x=32, tile_y=32, overlap=(1, 8, 8)):
         decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
@@ -419,6 +444,10 @@ class VAE:
     def encode_tiled_1d(self, samples, tile_x=128 * 2048, overlap=32 * 2048):
         encode_fn = lambda a: self.first_stage_model.encode((self.process_input(a)).to(self.vae_dtype).to(self.device)).float()
         return comfy.utils.tiled_scale_multidim(samples, encode_fn, tile=(tile_x,), overlap=overlap, upscale_amount=(1/self.downscale_ratio), out_channels=self.latent_channels, output_device=self.output_device)
+
+    def encode_tiled_3d(self, samples, tile_t=9999, tile_x=512, tile_y=512, overlap=(1, 64, 64)):
+        encode_fn = lambda a: self.first_stage_model.encode((self.process_input(a)).to(self.vae_dtype).to(self.device)).float()
+        return comfy.utils.tiled_scale_multidim(samples, encode_fn, tile=(tile_t, tile_x, tile_y), overlap=overlap, upscale_amount=self.downscale_ratio, out_channels=self.latent_channels, downscale=True, output_device=self.output_device)
 
     def decode(self, samples_in):
         pixel_samples = None
@@ -492,18 +521,43 @@ class VAE:
 
         except model_management.OOM_EXCEPTION:
             logging.warning("Warning: Ran out of memory when regular VAE encoding, retrying with tiled VAE encoding.")
-            if len(pixel_samples.shape) == 3:
+            if self.latent_dim == 3:
+                tile = 256
+                overlap = tile // 4
+                samples = self.encode_tiled_3d(pixel_samples, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
+            elif self.latent_dim == 1:
                 samples = self.encode_tiled_1d(pixel_samples)
             else:
                 samples = self.encode_tiled_(pixel_samples)
 
         return samples
 
-    def encode_tiled(self, pixel_samples, tile_x=512, tile_y=512, overlap = 64):
+    def encode_tiled(self, pixel_samples, tile_x=None, tile_y=None, overlap=None):
         pixel_samples = self.vae_encode_crop_pixels(pixel_samples)
-        model_management.load_model_gpu(self.patcher)
-        pixel_samples = pixel_samples.movedim(-1,1)
-        samples = self.encode_tiled_(pixel_samples, tile_x=tile_x, tile_y=tile_y, overlap=overlap)
+        dims = self.latent_dim
+        pixel_samples = pixel_samples.movedim(-1, 1)
+        if dims == 3:
+            pixel_samples = pixel_samples.movedim(1, 0).unsqueeze(0)
+
+        memory_used = self.memory_used_encode(pixel_samples.shape, self.vae_dtype)  # TODO: calculate mem required for tile
+        model_management.load_models_gpu([self.patcher], memory_required=memory_used)
+
+        args = {}
+        if tile_x is not None:
+            args["tile_x"] = tile_x
+        if tile_y is not None:
+            args["tile_y"] = tile_y
+        if overlap is not None:
+            args["overlap"] = overlap
+
+        if dims == 1:
+            args.pop("tile_y")
+            samples = self.encode_tiled_1d(pixel_samples, **args)
+        elif dims == 2:
+            samples = self.encode_tiled_(pixel_samples, **args)
+        elif dims == 3:
+            samples = self.encode_tiled_3d(pixel_samples, **args)
+
         return samples
 
     def get_sd(self):
@@ -514,6 +568,12 @@ class VAE:
             return self.upscale_ratio[-1]
         except:
             return self.upscale_ratio
+
+    def spacial_compression_encode(self):
+        try:
+            return self.downscale_ratio[-1]
+        except:
+            return self.downscale_ratio
 
 class StyleModel:
     def __init__(self, model, device="cpu"):
@@ -544,6 +604,9 @@ class CLIPType(Enum):
     FLUX = 6
     MOCHI = 7
     LTXV = 8
+    HUNYUAN_VIDEO = 9
+    PIXART = 10
+
 
 def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DIFFUSION, model_options={}):
     clip_data = []
@@ -559,6 +622,7 @@ class TEModel(Enum):
     T5_XXL = 4
     T5_XL = 5
     T5_BASE = 6
+    LLAMA3_8 = 7
 
 def detect_te_model(sd):
     if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
@@ -575,6 +639,8 @@ def detect_te_model(sd):
             return TEModel.T5_XL
     if "encoder.block.0.layer.0.SelfAttention.k.weight" in sd:
         return TEModel.T5_BASE
+    if "model.layers.0.post_attention_layernorm.weight" in sd:
+        return TEModel.LLAMA3_8
     return None
 
 
@@ -587,6 +653,14 @@ def t5xxl_detect(clip_data):
 
     return {}
 
+def llama_detect(clip_data):
+    weight_name = "model.layers.0.self_attn.k_proj.weight"
+
+    for sd in clip_data:
+        if weight_name in sd:
+            return comfy.text_encoders.hunyuan_video.llama_detect(sd)
+
+    return {}
 
 def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip_type=CLIPType.STABLE_DIFFUSION, model_options={}):
     clip_data = state_dicts
@@ -625,6 +699,9 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             elif clip_type == CLIPType.LTXV:
                 clip_target.clip = comfy.text_encoders.lt.ltxv_te(**t5xxl_detect(clip_data))
                 clip_target.tokenizer = comfy.text_encoders.lt.LTXVT5Tokenizer
+            elif clip_type == CLIPType.PIXART:
+                clip_target.clip = comfy.text_encoders.pixart_t5.pixart_te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = comfy.text_encoders.pixart_t5.PixArtTokenizer
             else: #CLIPType.MOCHI
                 clip_target.clip = comfy.text_encoders.genmo.mochi_te(**t5xxl_detect(clip_data))
                 clip_target.tokenizer = comfy.text_encoders.genmo.MochiT5Tokenizer
@@ -652,6 +729,9 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
         elif clip_type == CLIPType.FLUX:
             clip_target.clip = comfy.text_encoders.flux.flux_clip(**t5xxl_detect(clip_data))
             clip_target.tokenizer = comfy.text_encoders.flux.FluxTokenizer
+        elif clip_type == CLIPType.HUNYUAN_VIDEO:
+            clip_target.clip = comfy.text_encoders.hunyuan_video.hunyuan_video_clip(**llama_detect(clip_data))
+            clip_target.tokenizer = comfy.text_encoders.hunyuan_video.HunyuanVideoTokenizer
         else:
             clip_target.clip = sdxl_clip.SDXLClipModel
             clip_target.tokenizer = sdxl_clip.SDXLTokenizer
@@ -860,11 +940,11 @@ def load_diffusion_model(unet_path, model_options={}):
     return model
 
 def load_unet(unet_path, dtype=None):
-    print("WARNING: the load_unet function has been deprecated and will be removed please switch to: load_diffusion_model")
+    logging.warning("The load_unet function has been deprecated and will be removed please switch to: load_diffusion_model")
     return load_diffusion_model(unet_path, model_options={"dtype": dtype})
 
 def load_unet_state_dict(sd, dtype=None):
-    print("WARNING: the load_unet_state_dict function has been deprecated and will be removed please switch to: load_diffusion_model_state_dict")
+    logging.warning("The load_unet_state_dict function has been deprecated and will be removed please switch to: load_diffusion_model_state_dict")
     return load_diffusion_model_state_dict(sd, model_options={"dtype": dtype})
 
 def save_checkpoint(output_path, model, clip=None, vae=None, clip_vision=None, metadata=None, extra_keys={}):
