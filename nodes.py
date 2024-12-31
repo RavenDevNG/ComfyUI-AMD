@@ -51,7 +51,7 @@ class CLIPTextEncode(ComfyNodeABC):
     def INPUT_TYPES(s) -> InputTypeDict:
         return {
             "required": {
-                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}), 
+                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
                 "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."})
             }
         }
@@ -65,7 +65,7 @@ class CLIPTextEncode(ComfyNodeABC):
     def encode(self, clip, text):
         tokens = clip.tokenize(text)
         return (clip.encode_from_tokens_scheduled(tokens), )
-        
+
 
 class ConditioningCombine:
     @classmethod
@@ -269,8 +269,8 @@ class VAEDecode:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": { 
-                "samples": ("LATENT", {"tooltip": "The latent to be decoded."}), 
+            "required": {
+                "samples": ("LATENT", {"tooltip": "The latent to be decoded."}),
                 "vae": ("VAE", {"tooltip": "The VAE model used for decoding the latent."})
             }
         }
@@ -550,13 +550,13 @@ class CheckpointLoaderSimple:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": { 
+            "required": {
                 "ckpt_name": (folder_paths.get_filename_list("checkpoints"), {"tooltip": "The name of the checkpoint (model) to load."}),
             }
         }
     RETURN_TYPES = ("MODEL", "CLIP", "VAE")
-    OUTPUT_TOOLTIPS = ("The model used for denoising latents.", 
-                       "The CLIP model used for encoding text prompts.", 
+    OUTPUT_TOOLTIPS = ("The model used for denoising latents.",
+                       "The CLIP model used for encoding text prompts.",
                        "The VAE model used for encoding and decoding images to and from latent space.")
     FUNCTION = "load_checkpoint"
 
@@ -633,7 +633,7 @@ class LoraLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": { 
+            "required": {
                 "model": ("MODEL", {"tooltip": "The diffusion model the LoRA will be applied to."}),
                 "clip": ("CLIP", {"tooltip": "The CLIP model the LoRA will be applied to."}),
                 "lora_name": (folder_paths.get_filename_list("loras"), {"tooltip": "The name of the LoRA."}),
@@ -641,7 +641,7 @@ class LoraLoader:
                 "strength_clip": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01, "tooltip": "How strongly to modify the CLIP model. This value can be negative."}),
             }
         }
-    
+
     RETURN_TYPES = ("MODEL", "CLIP")
     OUTPUT_TOOLTIPS = ("The modified diffusion model.", "The modified CLIP model.")
     FUNCTION = "load_lora"
@@ -1162,7 +1162,7 @@ class EmptyLatentImage:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": { 
+            "required": {
                 "width": ("INT", {"default": 512, "min": 16, "max": MAX_RESOLUTION, "step": 8, "tooltip": "The width of the latent images in pixels."}),
                 "height": ("INT", {"default": 512, "min": 16, "max": MAX_RESOLUTION, "step": 8, "tooltip": "The height of the latent images in pixels."}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "tooltip": "The number of latent images in the batch."})
@@ -1211,7 +1211,7 @@ class LatentFromBatch:
         else:
             s["batch_index"] = samples["batch_index"][batch_index:batch_index + length]
         return (s,)
-    
+
 class RepeatLatentBatch:
     @classmethod
     def INPUT_TYPES(s):
@@ -1226,7 +1226,7 @@ class RepeatLatentBatch:
     def repeat(self, samples, amount):
         s = samples.copy()
         s_in = samples["samples"]
-        
+
         s["samples"] = s_in.repeat((amount, 1,1,1))
         if "noise_mask" in samples and samples["noise_mask"].shape[0] > 1:
             masks = samples["noise_mask"]
@@ -1636,15 +1636,15 @@ class LoadImage:
     FUNCTION = "load_image"
     def load_image(self, image):
         image_path = folder_paths.get_annotated_filepath(image)
-        
+
         img = node_helpers.pillow(Image.open, image_path)
-        
+
         output_images = []
         output_masks = []
         w, h = None, None
 
         excluded_formats = ['MPO']
-        
+
         for i in ImageSequence.Iterator(img):
             i = node_helpers.pillow(ImageOps.exif_transpose, i)
 
@@ -1655,10 +1655,10 @@ class LoadImage:
             if len(output_images) == 0:
                 w = image.size[0]
                 h = image.size[1]
-            
+
             if image.size[0] != w or image.size[1] != h:
                 continue
-            
+
             image = np.array(image).astype(np.float32) / 255.0
             image = torch.from_numpy(image)[None,]
             if 'A' in i.getbands():
@@ -2047,6 +2047,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
 EXTENSION_WEB_DIRS = {}
 
+# Dictionary of successfully loaded module names and associated directories.
+LOADED_MODULE_DIRS = {}
+
 
 def get_module_name(module_path: str) -> str:
     """
@@ -2087,6 +2090,8 @@ def load_custom_node(module_path: str, ignore=set(), module_parent="custom_nodes
         module = importlib.util.module_from_spec(module_spec)
         sys.modules[module_name] = module
         module_spec.loader.exec_module(module)
+
+        LOADED_MODULE_DIRS[module_name] = os.path.abspath(module_dir)
 
         if hasattr(module, "WEB_DIRECTORY") and getattr(module, "WEB_DIRECTORY") is not None:
             web_dir = os.path.abspath(os.path.join(module_dir, getattr(module, "WEB_DIRECTORY")))
@@ -2234,5 +2239,5 @@ def init_extra_nodes(init_custom_nodes=True):
         else:
             logging.warning("Please do a: pip install -r requirements.txt")
         logging.warning("")
-    
+
     return import_failed

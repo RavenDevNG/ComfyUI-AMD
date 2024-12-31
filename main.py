@@ -17,7 +17,7 @@ if __name__ == "__main__":
     os.environ['DO_NOT_TRACK'] = '1'
 
 
-setup_logger(log_level=args.verbose)
+setup_logger(log_level=args.verbose, use_stdout=args.log_stdout)
 
 def apply_custom_paths():
     # extra model paths
@@ -211,7 +211,9 @@ async def run(server_instance, address='', port=8188, verbose=True, call_on_star
     addresses = []
     for addr in address.split(","):
         addresses.append((addr, port))
-    await asyncio.gather(server_instance.start_multi_address(addresses, call_on_start), server_instance.publish_loop())
+    await asyncio.gather(
+        server_instance.start_multi_address(addresses, call_on_start, verbose), server_instance.publish_loop()
+    )
 
 
 def hijack_progress(server_instance):

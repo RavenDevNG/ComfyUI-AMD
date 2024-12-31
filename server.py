@@ -30,6 +30,7 @@ import node_helpers
 from app.frontend_management import FrontendManager
 from app.user_manager import UserManager
 from app.model_manager import ModelFileManager
+from app.custom_node_manager import CustomNodeManager
 from typing import Optional
 from api_server.routes.internal.internal_routes import InternalRoutes
 
@@ -153,6 +154,7 @@ class PromptServer():
 
         self.user_manager = UserManager()
         self.model_file_manager = ModelFileManager()
+        self.custom_node_manager = CustomNodeManager()
         self.internal_routes = InternalRoutes(self)
         self.supports = ["custom_nodes_from_web"]
         self.prompt_queue = None
@@ -266,7 +268,7 @@ class PromptServer():
 
         def compare_image_hash(filepath, image):
             hasher = node_helpers.hasher()
-            
+
             # function to compare hashes of two images to see if it already exists, fix to #3465
             if os.path.exists(filepath):
                 a = hasher()
@@ -697,6 +699,7 @@ class PromptServer():
     def add_routes(self):
         self.user_manager.add_routes(self.routes)
         self.model_file_manager.add_routes(self.routes)
+        self.custom_node_manager.add_routes(self.routes, self.app, nodes.LOADED_MODULE_DIRS.items())
         self.app.add_subapp('/internal', self.internal_routes.get_app())
 
         # Prefix every route with /api for easier matching for delegation.
@@ -713,6 +716,7 @@ class PromptServer():
         self.app.add_routes(api_routes)
         self.app.add_routes(self.routes)
 
+        # Add routes from web extensions.
         for name, dir in nodes.EXTENSION_WEB_DIRS.items():
             self.app.add_routes([web.static('/extensions/' + name, dir)])
 
@@ -803,7 +807,7 @@ class PromptServer():
     async def start(self, address, port, verbose=True, call_on_start=None):
         await self.start_multi_address([(address, port)], call_on_start=call_on_start)
 
-    async def start_multi_address(self, addresses, call_on_start=None):
+    async def start_multi_address(self, addresses, call_on_start=None, verbose=True):
         runner = web.AppRunner(self.app, access_log=None)
         await runner.setup()
         ssl_ctx = None
@@ -814,7 +818,8 @@ class PromptServer():
                                 keyfile=args.tls_keyfile)
                 scheme = "https"
 
-        logging.info("Starting server\n")
+        if verbose:
+            logging.info("Starting server\n")
         for addr in addresses:
             address = addr[0]
             port = addr[1]
@@ -830,7 +835,8 @@ class PromptServer():
             else:
                 address_print = address
 
-            logging.info("To see the GUI go to: {}://{}:{}".format(scheme, address_print, port))
+            if verbose:
+                logging.info("To see the GUI go to: {}://{}:{}".format(scheme, address_print, port))
 
         if call_on_start is not None:
             call_on_start(scheme, self.address, self.port)
