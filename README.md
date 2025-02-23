@@ -293,6 +293,8 @@ Use `--tls-keyfile key.pem --tls-certfile cert.pem` to enable TLS/SSL, the app w
 
 ## Support and dev channel
 
+[Discord](https://comfy.org/discord): Try the #help or #feedback channels.
+
 [Matrix space: #comfyui_space:matrix.org](https://app.element.io/#/room/%23comfyui_space%3Amatrix.org) (it's like discord but open source).
 
 See also: [https://www.comfy.org/](https://www.comfy.org/)
@@ -309,7 +311,7 @@ For any bugs, issues, or feature requests related to the frontend, please use th
 
 The new frontend is now the default for ComfyUI. However, please note:
 
-1. The frontend in the main ComfyUI repository is updated weekly.
+1. The frontend in the main ComfyUI repository is updated fortnightly.
 2. Daily releases are available in the separate frontend repository.
 
 To use the most up-to-date frontend version:
@@ -326,7 +328,7 @@ To use the most up-to-date frontend version:
    --front-end-version Comfy-Org/ComfyUI_frontend@1.2.2
    ```
 
-This approach allows you to easily switch between the stable weekly release and the cutting-edge daily updates, or even specific versions for testing purposes.
+This approach allows you to easily switch between the stable fortnightly release and the cutting-edge daily updates, or even specific versions for testing purposes.
 
 ### Accessing the Legacy Frontend
 
