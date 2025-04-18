@@ -46,6 +46,32 @@ cpu_state = CPUState.GPU
 
 total_vram = 0
 
+def get_supported_float8_types():
+    float8_types = []
+    try:
+        float8_types.append(torch.float8_e4m3fn)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e4m3fnuz)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e5m2)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e5m2fnuz)
+    except:
+        pass
+    try:
+        float8_types.append(torch.float8_e8m0fnu)
+    except:
+        pass
+    return float8_types
+
+FLOAT8_TYPES = get_supported_float8_types()
+
 xpu_available = False
 torch_version = ""
 try:
@@ -186,12 +212,21 @@ def get_total_memory(dev=None, torch_total_too=False):
     else:
         return mem_total
 
+def mac_version():
+    try:
+        return tuple(int(n) for n in platform.mac_ver()[0].split("."))
+    except:
+        return None
+
 total_vram = get_total_memory(get_torch_device()) / (1024 * 1024)
 total_ram = psutil.virtual_memory().total / (1024 * 1024)
 logging.info("Total VRAM {:0.0f} MB, total RAM {:0.0f} MB".format(total_vram, total_ram))
 
 try:
     logging.info("pytorch version: {}".format(torch_version))
+    mac_ver = mac_version()
+    if mac_ver is not None:
+        logging.info("Mac Version {}".format(mac_ver))
 except:
     pass
 
@@ -581,7 +616,7 @@ def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimu
             loaded_memory = loaded_model.model_loaded_memory()
             current_free_mem = get_free_memory(torch_dev) + loaded_memory
 
-            lowvram_model_memory = max(64 * 1024 * 1024, (current_free_mem - minimum_memory_required), min(current_free_mem * MIN_WEIGHT_MEMORY_RATIO, current_free_mem - minimum_inference_memory()))
+            lowvram_model_memory = max(128 * 1024 * 1024, (current_free_mem - minimum_memory_required), min(current_free_mem * MIN_WEIGHT_MEMORY_RATIO, current_free_mem - minimum_inference_memory()))
             lowvram_model_memory = max(0.1, lowvram_model_memory - loaded_memory)
 
         if vram_set_state == VRAMState.NO_VRAM:
@@ -692,11 +727,8 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=[torch.float16, tor
         return torch.float8_e5m2
 
     fp8_dtype = None
-    try:
-        if weight_dtype in [torch.float8_e4m3fn, torch.float8_e5m2]:
-            fp8_dtype = weight_dtype
-    except:
-        pass
+    if weight_dtype in FLOAT8_TYPES:
+        fp8_dtype = weight_dtype
 
     if fp8_dtype is not None:
         if supports_fp8_compute(device): #if fp8 compute is supported the casting is most likely not expensive
@@ -791,6 +823,8 @@ def text_encoder_dtype(device=None):
         return torch.float8_e5m2
     elif args.fp16_text_enc:
         return torch.float16
+    elif args.bf16_text_enc:
+        return torch.bfloat16
     elif args.fp32_text_enc:
         return torch.float32
 
@@ -921,6 +955,9 @@ def cast_to_device(tensor, device, dtype, copy=False):
 def sage_attention_enabled():
     return args.use_sage_attention
 
+def flash_attention_enabled():
+    return args.use_flash_attention
+
 def xformers_enabled():
     global directml_enabled
     global cpu_state
@@ -968,12 +1005,6 @@ def pytorch_attention_flash_attention():
         if is_amd():
             return True #if you have pytorch attention enabled on AMD it probably supports at least mem efficient attention
     return False
-
-def mac_version():
-    try:
-        return tuple(int(n) for n in platform.mac_ver()[0].split("."))
-    except:
-        return None
 
 def force_upcast_attention_dtype():
     upcast = args.force_upcast_attention
@@ -1206,6 +1237,8 @@ def soft_empty_cache(force=False):
         torch.xpu.empty_cache()
     elif is_ascend_npu():
         torch.npu.empty_cache()
+    elif is_mlu():
+        torch.mlu.empty_cache()
     elif torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()

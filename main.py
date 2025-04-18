@@ -10,6 +10,7 @@ from app.logger import setup_logger
 import itertools
 import utils.extra_config
 import logging
+import sys
 
 if __name__ == "__main__":
     #NOTE: These do not do anything on core ComfyUI which should already have no communication with the internet, they are for custom nodes.
@@ -139,7 +140,7 @@ from server import BinaryEventTypes
 import nodes
 import comfy.model_management
 import comfyui_version
-import app.frontend_management
+import app.logger
 
 
 def cuda_malloc_warning():
@@ -156,7 +157,13 @@ def cuda_malloc_warning():
 
 def prompt_worker(q, server_instance):
     current_time: float = 0.0
-    e = execution.PromptExecutor(server_instance, lru_size=args.cache_lru)
+    cache_type = execution.CacheType.CLASSIC
+    if args.cache_lru > 0:
+        cache_type = execution.CacheType.LRU
+    elif args.cache_none:
+        cache_type = execution.CacheType.DEPENDENCY_AWARE
+
+    e = execution.PromptExecutor(server_instance, cache_type=cache_type, cache_size=args.cache_lru)
     last_gc_collect = 0
     need_gc = False
     gc_collect_interval = 10.0
@@ -293,28 +300,15 @@ def start_comfyui(asyncio_loop=None):
     return asyncio_loop, prompt_server, start_all
 
 
-def warn_frontend_version(frontend_version):
-    try:
-        required_frontend = (0,)
-        req_path = os.path.join(os.path.dirname(__file__), 'requirements.txt')
-        with open(req_path, 'r') as f:
-            required_frontend = tuple(map(int, f.readline().split('=')[-1].split('.')))
-        if frontend_version < required_frontend:
-            logging.warning("________________________________________________________________________\nWARNING WARNING WARNING WARNING WARNING\n\nInstalled frontend version {} is lower than the recommended version {}.\n\n{}\n________________________________________________________________________".format('.'.join(map(str, frontend_version)), '.'.join(map(str, required_frontend)), app.frontend_management.frontend_install_warning_message()))
-    except:
-        pass
-
-
 if __name__ == "__main__":
     # Running directly, just start ComfyUI.
+    logging.info("Python version: {}".format(sys.version))
     logging.info("ComfyUI version: {}".format(comfyui_version.__version__))
-    frontend_version = app.frontend_management.frontend_version
-    logging.info("ComfyUI frontend version: {}".format('.'.join(map(str, frontend_version))))
 
     event_loop, _, start_all_func = start_comfyui()
     try:
         x = start_all_func()
-        warn_frontend_version(frontend_version)
+        app.logger.print_startup_warnings()
         event_loop.run_until_complete(x)
     except KeyboardInterrupt:
         logging.info("\nStopped server")
