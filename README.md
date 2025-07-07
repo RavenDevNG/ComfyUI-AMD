@@ -6,6 +6,7 @@
 
 [![Website][website-shield]][website-url]
 [![Dynamic JSON Badge][discord-shield]][discord-url]
+[![Twitter][twitter-shield]][twitter-url]
 [![Matrix][matrix-shield]][matrix-url]
 <br>
 [![][github-release-shield]][github-release-link]
@@ -20,6 +21,8 @@
 <!-- Workaround to display total user from https://github.com/badges/shields/issues/4500#issuecomment-2060079995 -->
 [discord-shield]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2Fcomfyorg%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&logo=discord&logoColor=white&label=Discord&color=green&suffix=%20total
 [discord-url]: https://www.comfy.org/discord
+[twitter-shield]: https://img.shields.io/twitter/follow/ComfyUI
+[twitter-url]: https://x.com/ComfyUI
 
 [github-release-shield]: https://img.shields.io/github/v/release/comfyanonymous/ComfyUI?style=flat&sort=semver
 [github-release-link]: https://github.com/comfyanonymous/ComfyUI/releases
@@ -49,7 +52,6 @@ Supports all operating systems and GPU types (NVIDIA, AMD, Intel, Apple Silicon,
 ## [Examples](https://comfyanonymous.github.io/ComfyUI_examples/)
 See what ComfyUI can do with the [example workflows](https://comfyanonymous.github.io/ComfyUI_examples/).
 
-
 ## Features
 - Nodes/graph/flowchart interface to experiment and create complex Stable Diffusion workflows without needing to code anything.
 - Image Models
@@ -63,21 +65,28 @@ See what ComfyUI can do with the [example workflows](https://comfyanonymous.gith
    - [Flux](https://comfyanonymous.github.io/ComfyUI_examples/flux/)
    - [Lumina Image 2.0](https://comfyanonymous.github.io/ComfyUI_examples/lumina2/)
    - [HiDream](https://comfyanonymous.github.io/ComfyUI_examples/hidream/)
+   - [Cosmos Predict2](https://comfyanonymous.github.io/ComfyUI_examples/cosmos_predict2/)
+- Image Editing Models
+   - [Omnigen 2](https://comfyanonymous.github.io/ComfyUI_examples/omnigen/)
+   - [Flux Kontext](https://comfyanonymous.github.io/ComfyUI_examples/flux/#flux-kontext-image-editing-model)
 - Video Models
    - [Stable Video Diffusion](https://comfyanonymous.github.io/ComfyUI_examples/video/)
    - [Mochi](https://comfyanonymous.github.io/ComfyUI_examples/mochi/)
    - [LTX-Video](https://comfyanonymous.github.io/ComfyUI_examples/ltxv/)
    - [Hunyuan Video](https://comfyanonymous.github.io/ComfyUI_examples/hunyuan_video/)
-   - [Nvidia Cosmos](https://comfyanonymous.github.io/ComfyUI_examples/cosmos/)
+   - [Nvidia Cosmos](https://comfyanonymous.github.io/ComfyUI_examples/cosmos/) and [Cosmos Predict2](https://comfyanonymous.github.io/ComfyUI_examples/cosmos_predict2/)
    - [Wan 2.1](https://comfyanonymous.github.io/ComfyUI_examples/wan/)
+- Audio Models
+   - [Stable Audio](https://comfyanonymous.github.io/ComfyUI_examples/audio/)
+   - [ACE Step](https://comfyanonymous.github.io/ComfyUI_examples/audio/)
 - 3D Models
    - [Hunyuan3D 2.0](https://docs.comfy.org/tutorials/3d/hunyuan3D-2)
-- [Stable Audio](https://comfyanonymous.github.io/ComfyUI_examples/audio/)
 - Asynchronous Queue system
 - Many optimizations: Only re-executes the parts of the workflow that changes between executions.
 - Smart memory management: can automatically run models on GPUs with as low as 1GB vram.
 - Works even if you don't have a GPU with: ```--cpu``` (slow)
 - Can load ckpt, safetensors and diffusers models/checkpoints. Standalone VAEs and CLIP models.
+- Safe loading of ckpt, pt, pth, etc.. files.
 - Embeddings/Textual inversion
 - [Loras (regular, locon and loha)](https://comfyanonymous.github.io/ComfyUI_examples/lora/)
 - [Hypernetworks](https://comfyanonymous.github.io/ComfyUI_examples/hypernetworks/)
@@ -93,11 +102,27 @@ See what ComfyUI can do with the [example workflows](https://comfyanonymous.gith
 - [Model Merging](https://comfyanonymous.github.io/ComfyUI_examples/model_merging/)
 - [LCM models and Loras](https://comfyanonymous.github.io/ComfyUI_examples/lcm/)
 - Latent previews with [TAESD](#how-to-show-high-quality-previews)
-- Starts up very fast.
-- Works fully offline: will never download anything.
+- Works fully offline: core will never download anything unless you want to.
+- Optional API nodes to use paid models from external providers through the online [Comfy API](https://docs.comfy.org/tutorials/api-nodes/overview).
 - [Config file](extra_model_paths.yaml.example) to set the search paths for models.
 
 Workflow examples can be found on the [Examples page](https://comfyanonymous.github.io/ComfyUI_examples/)
+
+## Release Process
+
+ComfyUI follows a weekly release cycle every Friday, with three interconnected repositories:
+
+1. **[ComfyUI Core](https://github.com/comfyanonymous/ComfyUI)**
+   - Releases a new stable version (e.g., v0.7.0)
+   - Serves as the foundation for the desktop release
+
+2. **[ComfyUI Desktop](https://github.com/Comfy-Org/desktop)**
+   - Builds a new release using the latest stable core version
+
+3. **[ComfyUI Frontend](https://github.com/Comfy-Org/ComfyUI_frontend)**
+   - Weekly frontend updates are merged into the core repository
+   - Features are frozen for the upcoming core release
+   - Development continues for the next release cycle
 
 ## Shortcuts
 
@@ -149,8 +174,6 @@ Simply download, extract with [7-Zip](https://7-zip.org) and run. Make sure you 
 
 If you have trouble extracting it, right click the file -> properties -> unblock
 
-If you have a 50 series Blackwell card like a 5090 or 5080 see [this discussion thread](https://github.com/comfyanonymous/ComfyUI/discussions/6643)
-
 #### How do I share models between another UI and ComfyUI?
 
 See the [Config file](extra_model_paths.yaml.example) to set the search paths for models. In the standalone windows build you can find this file in the ComfyUI directory. Rename this file to extra_model_paths.yaml and edit it with your favorite text editor.
@@ -182,11 +205,11 @@ Put your VAE in: models/vae
 ### AMD GPUs (Linux only)
 AMD users can install rocm and pytorch with pip if you don't have it already installed, this is the command to install the stable version:
 
-```pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.2.4```
+```pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3```
 
-This is the command to install the nightly with ROCm 6.3 which might have some performance improvements:
+This is the command to install the nightly with ROCm 6.4 which might have some performance improvements:
 
-```pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.3```
+```pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4```
 
 ### Intel GPUs (Windows and Linux)
 
@@ -216,11 +239,11 @@ Additional discussion and help can be found [here](https://github.com/comfyanony
 
 Nvidia users should install stable pytorch using this command:
 
-```pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu126```
+```pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu128```
 
-This is the command to install pytorch nightly instead which supports the new blackwell 50xx series GPUs and might have performance improvements.
+This is the command to install pytorch nightly instead which might have performance improvements.
 
-```pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128```
+```pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu129```
 
 #### Troubleshooting
 
@@ -252,6 +275,8 @@ You can install ComfyUI in Apple Mac silicon (M1 or M2) with any recent macOS ve
 > **Note**: Remember to add your models, VAE, LoRAs etc. to the corresponding Comfy folders, as discussed in [ComfyUI manual installation](#manual-install-windows-linux).
 
 #### DirectML (AMD Cards on Windows)
+
+This is very badly supported and is not recommended. There are some unofficial builds of pytorch ROCm on windows that exist that will give you a much better experience than this. This readme will be updated once official pytorch ROCm builds for windows come out.
 
 ```pip install torch-directml``` Then you can launch ComfyUI with: ```python main.py --directml```
 
@@ -286,7 +311,7 @@ For AMD 7600 and maybe other RDNA3 cards: ```HSA_OVERRIDE_GFX_VERSION=11.0.0 pyt
 
 ### AMD ROCm Tips
 
-You can enable experimental memory efficient attention on pytorch 2.5 in ComfyUI on RDNA3 and potentially other AMD GPUs using this command:
+You can enable experimental memory efficient attention on recent pytorch in ComfyUI on some AMD GPUs using this command, it should already be enabled by default on RDNA3. If this improves speed for you on latest pytorch on your GPU please report it so that I can enable it by default.
 
 ```TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1 python main.py --use-pytorch-cross-attention```
 

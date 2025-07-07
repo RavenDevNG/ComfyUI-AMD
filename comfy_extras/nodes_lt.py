@@ -38,6 +38,7 @@ class LTXVImgToVideo:
                              "height": ("INT", {"default": 512, "min": 64, "max": nodes.MAX_RESOLUTION, "step": 32}),
                              "length": ("INT", {"default": 97, "min": 9, "max": nodes.MAX_RESOLUTION, "step": 8}),
                              "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
+                             "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0}),
                              }}
 
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
@@ -46,7 +47,7 @@ class LTXVImgToVideo:
     CATEGORY = "conditioning/video_models"
     FUNCTION = "generate"
 
-    def generate(self, positive, negative, image, vae, width, height, length, batch_size):
+    def generate(self, positive, negative, image, vae, width, height, length, batch_size, strength):
         pixels = comfy.utils.common_upscale(image.movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
         encode_pixels = pixels[:, :, :, :3]
         t = vae.encode(encode_pixels)
@@ -59,7 +60,7 @@ class LTXVImgToVideo:
             dtype=torch.float32,
             device=latent.device,
         )
-        conditioning_latent_frames_mask[:, :, :t.shape[2]] = 0
+        conditioning_latent_frames_mask[:, :, :t.shape[2]] = 1.0 - strength
 
         return (positive, negative, {"samples": latent, "noise_mask": conditioning_latent_frames_mask}, )
 
@@ -133,8 +134,8 @@ class LTXVAddGuide:
         _, num_keyframes = get_keyframe_idxs(cond)
         latent_count = latent_length - num_keyframes
         frame_idx = frame_idx if frame_idx >= 0 else max((latent_count - 1) * time_scale_factor + 1 + frame_idx, 0)
-        if guide_length > 1:
-            frame_idx = frame_idx // time_scale_factor * time_scale_factor # frame index must be divisible by 8
+        if guide_length > 1 and frame_idx != 0:
+            frame_idx = (frame_idx - 1) // time_scale_factor * time_scale_factor + 1 # frame index - 1 must be divisible by 8 or frame_idx == 0
 
         latent_idx = (frame_idx + time_scale_factor - 1) // time_scale_factor
 
@@ -143,7 +144,7 @@ class LTXVAddGuide:
     def add_keyframe_index(self, cond, frame_idx, guiding_latent, scale_factors):
         keyframe_idxs, _ = get_keyframe_idxs(cond)
         _, latent_coords = self._patchifier.patchify(guiding_latent)
-        pixel_coords = latent_to_pixel_coords(latent_coords, scale_factors, True)
+        pixel_coords = latent_to_pixel_coords(latent_coords, scale_factors, causal_fix=frame_idx == 0)  # we need the causal fix only if we're placing the new latents at index 0
         pixel_coords[:, 0] += frame_idx
         if keyframe_idxs is None:
             keyframe_idxs = pixel_coords
@@ -152,6 +153,15 @@ class LTXVAddGuide:
         return node_helpers.conditioning_set_values(cond, {"keyframe_idxs": keyframe_idxs})
 
     def append_keyframe(self, positive, negative, frame_idx, latent_image, noise_mask, guiding_latent, strength, scale_factors):
+        _, latent_idx = self.get_latent_index(
+            cond=positive,
+            latent_length=latent_image.shape[2],
+            guide_length=guiding_latent.shape[2],
+            frame_idx=frame_idx,
+            scale_factors=scale_factors,
+        )
+        noise_mask[:, :, latent_idx:latent_idx + guiding_latent.shape[2]] = 1.0
+
         positive = self.add_keyframe_index(positive, frame_idx, guiding_latent, scale_factors)
         negative = self.add_keyframe_index(negative, frame_idx, guiding_latent, scale_factors)
 
@@ -385,7 +395,7 @@ def encode_single_frame(output_file, image_array: np.ndarray, crf):
     container = av.open(output_file, "w", format="mp4")
     try:
         stream = container.add_stream(
-            "h264", rate=1, options={"crf": str(crf), "preset": "veryfast"}
+            "libx264", rate=1, options={"crf": str(crf), "preset": "veryfast"}
         )
         stream.height = image_array.shape[0]
         stream.width = image_array.shape[1]
